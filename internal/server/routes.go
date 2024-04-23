@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,9 +10,42 @@ import (
 )
 
 func (s *FiberServer) RegisterFiberRoutes() {
-	s.App.Get("/", s.GetFileHandler)
+	s.App.Get("b64/", s.B64Hanlder)
+	s.App.Get("chunk/", s.GetFileHandler)
 
 }
+
+func (s *FiberServer) B64Hanlder(c *fiber.Ctx) error {
+	s3Link := c.Query("link")
+	if s3Link == "" {
+		return c.Status(http.StatusBadRequest).SendString("Не указан URL файла")
+	}
+
+	resp, err := http.Get(s3Link)
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).SendString("Ошибка при загрузке файла: " + err.Error())
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Ошибка при чтении данных из ответа:", err)
+		return c.Status(http.StatusInternalServerError).SendString(err.Error())
+	}
+
+	type response struct {
+		Data string `json:"data"`
+	}
+
+	encodedData := base64.StdEncoding.EncodeToString(body)
+
+	c.Set("Content-Type", "application/json")
+	c.Status(http.StatusOK).JSON(response{
+		Data: encodedData,
+	})
+	return nil
+}
+
 func (s *FiberServer) GetFileHandler(c *fiber.Ctx) error {
 	s3Link := c.Query("link")
 	if s3Link == "" {
