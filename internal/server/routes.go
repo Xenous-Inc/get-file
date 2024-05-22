@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -45,25 +46,35 @@ func (s *FiberServer) B64Hanlder(c *fiber.Ctx) error {
 	})
 	return nil
 }
-
 func (s *FiberServer) GetFileHandler(c *fiber.Ctx) error {
 	s3Link := c.Query("link")
 	if s3Link == "" {
 		return c.Status(http.StatusBadRequest).SendString("Не указан URL файла")
 	}
 
-	resp, err := http.Get(s3Link)
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Get(s3Link)
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).SendString("Ошибка при загрузке файла: " + err.Error())
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return c.Status(resp.StatusCode).SendString("Ошибка при загрузке файла: " + resp.Status)
+	}
+
 	chunkSize := int64(1024 * 1024) // 1 МБ
 	reader := resp.Body
 
+	c.Set("Content-Length", fmt.Sprintf("%d", resp.ContentLength))
+	c.Set("Transfer-Encoding", "chunked")
+
 	var totalBytes int64
+	buffer := make([]byte, chunkSize)
 	for {
-		buffer := make([]byte, chunkSize)
 		n, err := reader.Read(buffer)
 		if err == io.EOF {
 			break
@@ -73,16 +84,10 @@ func (s *FiberServer) GetFileHandler(c *fiber.Ctx) error {
 		}
 
 		totalBytes += int64(n)
-		// progress := float64(totalBytes) / float64(resp.ContentLength) * 100
-
-		c.Write(buffer[:n])
-
-		// progressJSON := fmt.Sprintf(`{"progress": %.2f}`, progress)
-		// c.Write([]byte(progressJSON))
-
-		buffer = make([]byte, chunkSize)
+		if _, err := c.Write(buffer[:n]); err != nil {
+			return err
+		}
 	}
-	c.Set("Content-Length", fmt.Sprintf("%d", resp.ContentLength))
-	c.Set("Transfer-Encoding", "chunked")
+
 	return nil
 }
