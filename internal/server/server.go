@@ -11,10 +11,11 @@ type FiberServer struct {
 func New() *FiberServer {
 	server := &FiberServer{
 		App: fiber.New(fiber.Config{
-			ServerHeader: "hui",
-			AppName:      "hui",
+			ServerHeader: "getfile",
+			AppName:      "getfile",
 		}),
 	}
+	server.Server().LogAllErrors = true
 
 	return server
 }
